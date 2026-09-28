@@ -43,12 +43,18 @@ async def insert_tasks(note_id: int, tasks: list) -> None:
 
             if linked_row:
                 consumed_ids.add(linked_row['id'])
+                due_timezone = (
+                    linked_row['todoist_due_timezone']
+                    if task['due_date'] and 'T' in task['due_date']
+                    else None
+                )
                 linked_needs_sync = any((
                     _normalized_raw_text(linked_row['raw_text'])
                     != _normalized_raw_text(task['raw_text']),
                     linked_row['title'] != title,
                     linked_row['is_done'] != task['is_done'],
                     linked_row['due_date'] != task['due_date'],
+                    linked_row['todoist_due_timezone'] != due_timezone,
                     linked_row['priority'] != task.get('priority'),
                     linked_row['tags'] != task.get('tags'),
                     linked_row['todoist_project_name'] != task.get('todoist_project_name'),
@@ -58,13 +64,13 @@ async def insert_tasks(note_id: int, tasks: list) -> None:
                 )
                 await conn.execute("""
                     UPDATE tasks SET note_id=?, block_id=?, raw_text=?, title=?,
-                        is_done=?, is_deleted=0, due_date=?, priority=?, tags=?,
+                        is_done=?, is_deleted=0, due_date=?, todoist_due_timezone=?, priority=?, tags=?,
                         recurrence=?, start_date=?, todoist_project_name=?,
                         sync_status=?
                     WHERE id=?
                 """, (
                     note_id, task['block_id'], task['raw_text'], title,
-                    task['is_done'], task['due_date'], task.get('priority'),
+                    task['is_done'], task['due_date'], due_timezone, task.get('priority'),
                     task.get('tags'), task.get('recurrence'), task.get('start_date'),
                     task.get('todoist_project_name'), linked_sync_status,
                     linked_row['id'],
@@ -75,9 +81,15 @@ async def insert_tasks(note_id: int, tasks: list) -> None:
             if title in existing_map:
                 old = existing_map[title]
                 consumed_ids.add(old['id'])
+                due_timezone = (
+                    old['todoist_due_timezone']
+                    if task['due_date'] and 'T' in task['due_date']
+                    else None
+                )
                 needs_sync = (
                     old['is_done'] != task['is_done']
                     or old['due_date'] != task['due_date']
+                    or old['todoist_due_timezone'] != due_timezone
                     or _normalized_raw_text(old['raw_text'])
                     != _normalized_raw_text(task['raw_text'])
                     or old['priority'] != task.get('priority')
@@ -88,13 +100,13 @@ async def insert_tasks(note_id: int, tasks: list) -> None:
 
                 await conn.execute("""
                     UPDATE tasks
-                    SET block_id=?, raw_text=?, is_done=?, due_date=?,
+                    SET block_id=?, raw_text=?, is_done=?, due_date=?, todoist_due_timezone=?,
                         priority=?, tags=?, recurrence=?, start_date=?,
                         todoist_project_name=?, sync_status=?
                     WHERE id=?
                 """, (
                     task['block_id'], task['raw_text'], task['is_done'],
-                    task['due_date'], task.get('priority'),
+                    task['due_date'], due_timezone, task.get('priority'),
                     task.get('tags'), task.get('recurrence'),
                     task.get('start_date'), task.get('todoist_project_name'),
                     sync_status, old['id'],

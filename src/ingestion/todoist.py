@@ -120,10 +120,12 @@ class TodoistClient:
             "content": task["title"],
             "priority": _todoist_priority(task["priority"]),
             "labels": _labels(task["tags"]),
+            "due_date": None,
         }
         due_date = task.get("due_date")
         if due_date:
             if "T" in due_date:
+                payload.pop("due_date")
                 payload["due_datetime"] = due_date
                 if task.get("todoist_due_timezone"):
                     payload["due_timezone"] = task["todoist_due_timezone"]

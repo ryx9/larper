@@ -53,7 +53,10 @@ async def test_sync_once_pushes_local_and_imports_remote_tasks(tmp_path, monkeyp
                 "id": "remote-1",
                 "content": "Changed remotely",
                 "checked": False,
-                "due": {"date": "2026-10-03"},
+                "due": {
+                    "datetime": "2026-10-03T14:30:00",
+                    "timezone": "America/New_York",
+                },
                 "priority": 4,
                 "labels": ["work"],
                 "project_id": "project-1",
@@ -82,6 +85,7 @@ async def test_sync_once_pushes_local_and_imports_remote_tasks(tmp_path, monkeyp
     async with get_connection() as conn:
         cursor = await conn.execute(
                 """SELECT title, todolist_id, sync_status, is_deleted, due_date,
+                             todoist_due_timezone,
                              priority, tags, todoist_project_id, todoist_project_name
                     FROM tasks ORDER BY id"""
         )
@@ -89,7 +93,8 @@ async def test_sync_once_pushes_local_and_imports_remote_tasks(tmp_path, monkeyp
 
     assert rows[0]["title"] == "Changed remotely"
     assert rows[0]["sync_status"] == "synced"
-    assert rows[0]["due_date"] == "2026-10-03"
+    assert rows[0]["due_date"] == "2026-10-03T14:30:00"
+    assert rows[0]["todoist_due_timezone"] == "America/New_York"
     assert rows[0]["priority"] == "high"
     assert rows[0]["tags"] == "work"
     assert rows[1]["title"] == "Local task"
@@ -101,14 +106,14 @@ async def test_sync_once_pushes_local_and_imports_remote_tasks(tmp_path, monkeyp
     assert rows[1]["todoist_project_id"] == "project-1"
     assert rows[1]["todoist_project_name"] == "Work"
     assert note_path.read_text(encoding="utf-8").startswith(
-        "- [ ] Changed remotely #work [!] @due 2026-10-03 proj:\"Work\" "
+        "- [ ] Changed remotely #work [!] @due 2026-10-03T14:30:00 proj:\"Work\" "
         "<!-- todoist:remote-1 -->\n"
     )
     _, _, parsed_tasks, _, _ = parse_markdown(
         note_path, note_path.read_text(encoding="utf-8")
     )
     assert parsed_tasks[0]["title"] == "Changed remotely"
-    assert parsed_tasks[0]["due_date"] == "2026-10-03"
+    assert parsed_tasks[0]["due_date"] == "2026-10-03T14:30:00"
     assert parsed_tasks[0]["priority"] == "high"
     assert parsed_tasks[0]["tags"] == "work"
     assert parsed_tasks[0]["todoist_id"] == "remote-1"
@@ -296,6 +301,73 @@ async def test_markdown_edits_update_existing_todoist_task(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_markdown_due_date_removal_clears_todoist_and_database(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "ACTIVE_FOLDER", str(tmp_path))
+    monkeypatch.setattr(settings, "DB_PATH", "notes.db")
+    monkeypatch.setattr(settings, "TODOIST_ENABLED", True)
+    monkeypatch.setattr(settings, "TODOIST_API_KEY", "test-token")
+    await init_db()
+
+    note_path = tmp_path / "tasks.md"
+    original = "- [ ] Submit form @due 2026-10-05T09:00:00 <!-- todoist:clear-1 -->\n"
+    note_path.write_text(original, encoding="utf-8")
+    note_id = await upsert_note(
+        str(note_path), "tasks", "page", original, "created"
+    )
+    async with get_connection() as conn:
+        await conn.execute("""
+            INSERT INTO tasks
+                (note_id, raw_text, title, due_date, todoist_due_timezone,
+                 todolist_id, sync_status)
+            VALUES (?, ?, 'Submit form', '2026-10-05T09:00:00',
+                    'America/New_York', 'clear-1', 'synced')
+        """, (note_id, original.strip()))
+        await conn.commit()
+
+    edited = "- [ ] Submit form <!-- todoist:clear-1 -->\n"
+    note_path.write_text(edited, encoding="utf-8")
+    _, _, parsed, _, _ = parse_markdown(note_path, edited)
+    for task in parsed:
+        task["block_id"] = None
+    await insert_tasks(note_id, parsed)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/projects"):
+            return httpx.Response(200, json={"results": [], "next_cursor": None})
+        if request.method == "GET" and request.url.path.endswith("/tasks"):
+            return httpx.Response(200, json={"results": [{
+                "id": "clear-1",
+                "content": "Submit form",
+                "checked": False,
+                "due": {
+                    "datetime": "2026-10-05T09:00:00",
+                    "timezone": "America/New_York",
+                },
+            }], "next_cursor": None})
+        if request.method == "GET":
+            return httpx.Response(200, json={"results": [], "next_cursor": None})
+        if request.method == "POST" and request.url.path.endswith("/clear-1"):
+            assert json.loads(request.content)["due_date"] is None
+            return httpx.Response(200, json={"id": "clear-1"})
+        return httpx.Response(404)
+
+    client = TodoistClient("test-token", transport=httpx.MockTransport(handler))
+    try:
+        await sync_once(client)
+    finally:
+        await client.close()
+
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT due_date, todoist_due_timezone, sync_status FROM tasks"
+        )
+        row = await cursor.fetchone()
+    assert row["due_date"] is None
+    assert row["todoist_due_timezone"] is None
+    assert row["sync_status"] == "synced"
+
+
+@pytest.mark.asyncio
 async def test_markdown_project_change_moves_existing_todoist_task(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "ACTIVE_FOLDER", str(tmp_path))
     monkeypatch.setattr(settings, "DB_PATH", "notes.db")
@@ -468,6 +540,7 @@ def test_timed_due_and_project_metadata_round_trip():
         "todoist_project_id": "project-1",
     })
     assert payload["due_datetime"] == "2026-10-03T09:30:00"
+    assert "due_date" not in payload
     assert payload["due_timezone"] == "America/New_York"
     assert payload["project_id"] == "project-1"
     assert payload["labels"] == ["Work"]
