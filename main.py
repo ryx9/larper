@@ -16,6 +16,7 @@ if str(tui_path) not in sys.path:
 from src.ingestion.db import init_db          # pure aiosqlite, fast
 from src.core.watchdog import start_watchdog  # watchdog observer, fast
 from src.ingestion.worker import ingestion_worker
+from src.ingestion.sync_worker import sync_worker
 from src.TUI.app import DevWorkspaceApp
 
 # NOTE: parser_worker and _preload_vector_db are intentionally NOT imported at
@@ -78,6 +79,7 @@ async def async_main() -> None:
     # ------------------------------------------------------------------
     watchdog_task  = asyncio.create_task(start_watchdog(),   name="watchdog")
     ingestion_task = asyncio.create_task(ingestion_worker(), name="ingestion")  # event_queue → processor → parser_queue
+    sync_task = asyncio.create_task(sync_worker(), name="todoist-sync")
     # ------------------------------------------------------------------
     # 3. Heavy NLP workers — started as tasks so their deferred imports
     #    and model loading happen concurrently with the TUI rendering,
@@ -95,10 +97,10 @@ async def async_main() -> None:
     try:
         await app.run_async()
     finally:
-        for task in (watchdog_task, ingestion_task, parser_task, preload_task):
+        for task in (watchdog_task, ingestion_task, sync_task, parser_task, preload_task):
             task.cancel()
 
-        for task in (watchdog_task, ingestion_task, parser_task, preload_task):
+        for task in (watchdog_task, ingestion_task, sync_task, parser_task, preload_task):
             try:
                 await task
             except asyncio.CancelledError:

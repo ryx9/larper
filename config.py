@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # ── Anthropic (primary LLM — claude-sonnet-4-6) ───────────────────────────
     ANTHROPIC_API_KEY: str = ""
 
+    # ── Todoist sync ──────────────────────────────────────────────────────────
+    TODOIST_ENABLED: bool = False
+    TODOIST_API_KEY: str = ""
+    TODOIST_SYNC_INTERVAL_SECONDS: int = 60
+
     # ── Paths ─────────────────────────────────────────────────────────────────
     ACTIVE_FOLDER: str = "."
     DB_PATH: str = "notes.db"

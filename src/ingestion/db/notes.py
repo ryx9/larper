@@ -86,6 +86,10 @@ async def delete_note(file_path: str) -> None:
         await conn.execute(
             "UPDATE notes SET deleted_at=? WHERE file_path=?", (now, abs_path)
         )
+        await conn.execute(
+            "UPDATE tasks SET is_deleted=1, sync_status='local' WHERE note_id=(SELECT id FROM notes WHERE file_path=?) AND is_deleted=0",
+            (abs_path,),
+        )
         await conn.commit()
         print(f"--> [DB] Deleted note: {abs_path}")
 
@@ -107,3 +111,10 @@ async def delete_note(file_path: str) -> None:
             )
         except Exception as exc:
             print(f"[WARN] VectorDB cleanup failed for {abs_path}: {exc}")
+
+    try:
+        from src.ingestion.sync_worker import trigger_sync
+
+        trigger_sync()
+    except Exception:
+        pass

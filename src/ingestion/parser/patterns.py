@@ -62,7 +62,10 @@ RECURRENCE_PATTERN = re.compile(
 LINK_PATTERN = re.compile(r"\[\[([^\[\]]+?)\]\]")
 
 DUE_DATE_PATTERN = re.compile(
-    r"(?:due:|@due)\s*(\d{4}[-/]\d{2}[-/]\d{2})", re.IGNORECASE
+    r"(?:due:|@due)\s*(\d{4}[-/]\d{2}[-/]\d{2}"
+    r"(?:[T ]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?"
+    r"\s*(?:AM|PM)?(?:Z|[+-]\d{2}:?\d{2})?)?)",
+    re.IGNORECASE,
 )
 
 START_DATE_PATTERN = re.compile(r"@start\s*(\d{4}[-/]\d{2}[-/]\d{2})", re.IGNORECASE)
@@ -80,6 +83,7 @@ NATURAL_DATE_PATTERN = re.compile(
         |in\s+\d+\s+(?:days?|weeks?|months?|years?)
         |on\s+(?:mon|tues?|wednes|thurs?|fri|satur|sun)day
         |(?:mon|tues?|wednes|thurs?|fri|satur|sun)day
-    )\b""",
+    )\b(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:AM|PM)?|"
+    r"\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?""",
     re.IGNORECASE | re.VERBOSE,
 )

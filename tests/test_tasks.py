@@ -1,5 +1,7 @@
+import asyncio
+
 import pytest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from config import settings
@@ -8,7 +10,7 @@ from src.ingestion.db.notes import upsert_note
 from src.ingestion.db.schema import init_db
 from src.ingestion.db.tasks import insert_tasks
 from src.TUI.state.store import Item
-from src.TUI.widgets.todos import TodoItem, TodosPanel
+from src.TUI.widgets.todos import TodoItem, TodosPanel, format_due_date
 
 
 @pytest.mark.asyncio
@@ -136,3 +138,49 @@ def test_todo_item_marks_overdue_for_past_due_date():
     todo_item = TodoItem(item, task_id=1, raw_text="- [ ] Past due task", is_done=False)
 
     assert todo_item._is_overdue is True
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2026-09-29", "Today"),
+        ("2026-09-29T09:30:00", "Today at 9:30 AM"),
+        ("2026-09-30T14:05:00", "Tomorrow at 2:05 PM"),
+        ("2026-10-03", "Saturday"),
+    ],
+)
+def test_due_dates_are_displayed_naturally(value, expected):
+    assert format_due_date(value, today=date(2026, 9, 29)) == expected
+
+
+@pytest.mark.asyncio
+async def test_completed_todo_removal_is_deferred_until_after_refresh(monkeypatch):
+    todo_item = TodoItem(
+        Item(
+            id="1",
+            text="Complete this",
+            file="missing.md",
+            created_at=datetime.now(),
+            date=None,
+        ),
+        task_id=0,
+    )
+    scheduled = []
+    removed = []
+
+    async def fake_remove():
+        removed.append(True)
+
+    monkeypatch.setattr(todo_item, "remove", fake_remove)
+    monkeypatch.setattr(
+        todo_item, "call_after_refresh", lambda callback: scheduled.append(callback)
+    )
+
+    await todo_item.toggle_done()
+
+    assert todo_item._is_done is True
+    assert len(scheduled) == 1
+    assert removed == []
+    scheduled[0]()
+    await asyncio.sleep(0)
+    assert removed == [True]

@@ -40,10 +40,36 @@ def _resolve_natural_date(
             if found:
                 parsed = found[0][1]
         if parsed:
+            explicit_time = re.search(
+                r"\b(?:at\s+)?\d{1,2}:\d{2}\s*(?:am|pm)?\b"
+                r"|\bat\s+\d{1,2}\s*(?:am|pm)\b",
+                candidate,
+                re.IGNORECASE,
+            )
+            if explicit_time:
+                return parsed.isoformat(timespec="minutes")
             return parsed.date().isoformat()
     except Exception:
         pass
     return None
+
+
+def _normalize_explicit_due(value: str) -> str:
+    value = value.replace("/", "-")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return value
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).isoformat()
+    except ValueError:
+        try:
+            import dateparser
+
+            parsed = dateparser.parse(value, languages=["en"])
+            if parsed:
+                return parsed.isoformat(timespec="minutes")
+        except Exception:
+            pass
+    return value
 
 
 def _extract_heading_level(tag: str) -> Optional[int]:
@@ -85,6 +111,21 @@ def _extract_task_meta(
     content: str, task_text: str, status_val: Optional[str], block_id: int
 ) -> Dict[str, Any]:
     """Build a task dict with all extracted metadata."""
+    todoist_marker = re.search(r"<!--\s*todoist:([^\s>]+)\s*-->", content)
+    todoist_id = todoist_marker.group(1) if todoist_marker else None
+    task_text = re.sub(r"<!--\s*todoist:[^\s>]+\s*-->", "", task_text).strip()
+
+    project_match = re.search(
+        r"(?:^|\s)proj:(?:\"([^\"]+)\"|'([^']+)'|(.+?))(?=\s+(?:#|@|\[|<!--)|$)",
+        task_text,
+        re.IGNORECASE,
+    )
+    project_name = next(
+        (value.strip() for value in project_match.groups() if value), None
+    ) if project_match else None
+    if project_match:
+        task_text = (task_text[:project_match.start()] + " " + task_text[project_match.end():]).strip()
+
     is_done = 0
     if status_val:
         normalized = status_val.strip().lower()
@@ -97,7 +138,7 @@ def _extract_task_meta(
     # 1) Explicit ISO due marker: "due: 2026-04-22" / "@due 2026/04/22" (exact, no parsing needed)
     due_match = DUE_DATE_PATTERN.search(task_text)
     if due_match:
-        due_date = due_match.group(1).replace("/", "-")
+        due_date = _normalize_explicit_due(due_match.group(1))
         task_text = task_text.replace(due_match.group(0), "")
     else:
         # 2) Explicit due marker with a natural-language phrase: "due: tomorrow",
@@ -129,7 +170,7 @@ def _extract_task_meta(
     priority = None
     if pri_match:
         val = pri_match.group(1)
-        priority = "high" if "!" in val else "medium"
+        priority = "high" if "!" in val else "low" if val.count("?") > 1 else "medium"
 
     # Tags
     tags_list = TAG_PATTERN.findall(task_text)
@@ -161,6 +202,8 @@ def _extract_task_meta(
         "start_date": start_date,
         "priority": priority,
         "tags": tags,
+        "todoist_id": todoist_id,
+        "todoist_project_name": project_name,
         "recurrence": recurrence,
         "block_id": block_id,
     }

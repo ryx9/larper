@@ -48,11 +48,14 @@ async def _create_tasks_table(conn: aiosqlite.Connection) -> None:
             is_done INTEGER DEFAULT 0,
             is_deleted INTEGER DEFAULT 0,
             due_date TEXT NULLABLE,
+            todoist_due_timezone TEXT NULLABLE,
             priority TEXT NULLABLE,
             tags TEXT NULLABLE,
             recurrence TEXT NULLABLE,
             start_date TEXT NULLABLE,
             todolist_id TEXT NULLABLE UNIQUE,
+            todoist_project_id TEXT NULLABLE,
+            todoist_project_name TEXT NULLABLE,
             gcal_event_id TEXT NULLABLE,
             sync_status TEXT DEFAULT 'pending',
             last_synced_at DATETIME NULLABLE,
@@ -60,6 +63,16 @@ async def _create_tasks_table(conn: aiosqlite.Connection) -> None:
             FOREIGN KEY (block_id) REFERENCES blocks(id) ON DELETE SET NULL
         )
     """)
+
+
+async def _migrate_tasks_table(conn: aiosqlite.Connection) -> None:
+    cursor = await conn.execute("PRAGMA table_info(tasks)")
+    columns = {row["name"] for row in await cursor.fetchall()}
+    for column in (
+        "todoist_project_id", "todoist_project_name", "todoist_due_timezone"
+    ):
+        if column not in columns:
+            await conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT NULLABLE")
 
 
 async def _create_sync_log_table(conn: aiosqlite.Connection) -> None:
@@ -135,6 +148,7 @@ async def init_db() -> None:
         await _create_notes_table(conn)
         await _create_blocks_table(conn)
         await _create_tasks_table(conn)
+        await _migrate_tasks_table(conn)
         await _create_sync_log_table(conn)
         await _create_block_references_table(conn)
         await _create_block_tags_table(conn)

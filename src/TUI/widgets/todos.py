@@ -4,7 +4,7 @@ from textual.widgets import Static, ListView, ListItem, Label
 from textual.binding import Binding
 from textual.worker import get_current_worker
 from textual.events import Click
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import asyncio
 import re
 
@@ -23,6 +23,41 @@ except ImportError:
 
 # Matches 'todo: my task' or 'done: my task' format
 TASK_PREFIX_RE = re.compile(r"^(\s*)(?:[-*]\s+)?(todo|done)\s*:\s*(.+)$", re.IGNORECASE)
+
+
+def format_due_date(value: str | None, today: date | None = None) -> str:
+    """Format stored ISO due values as concise local dates with optional time."""
+    if not value:
+        return ""
+    today = today or date.today()
+    try:
+        due = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            due = datetime.combine(date.fromisoformat(value[:10]), datetime.min.time())
+        except ValueError:
+            return value
+
+    if due.tzinfo is not None:
+        due = due.astimezone()
+    due_day = due.date()
+    difference = (due_day - today).days
+    if difference == 0:
+        label = "Today"
+    elif difference == 1:
+        label = "Tomorrow"
+    elif difference == -1:
+        label = "Yesterday"
+    elif 1 < difference < 7:
+        label = due.strftime("%A")
+    elif due_day.year == today.year:
+        label = due.strftime("%b %d").replace(" 0", " ")
+    else:
+        label = due.strftime("%b %d, %Y").replace(" 0", " ")
+
+    if "T" in value or (" " in value and len(value) > 10):
+        label += f" at {due.strftime('%I:%M %p').lstrip('0')}"
+    return label
 
 
 class TodoItem(ListItem):
@@ -70,7 +105,8 @@ class TodoItem(ListItem):
 
     def compose(self) -> ComposeResult:
         due = (
-            f"  [dim #3b4261]{self._item.date}[/dim #3b4261]" if self._item.date else ""
+            f"  [dim #3b4261]{format_due_date(self._item.date)}[/dim #3b4261]"
+            if self._item.date else ""
         )
         checkbox = " ☒ " if self._is_done else " ☐ "
 
@@ -99,7 +135,9 @@ class TodoItem(ListItem):
         await self._update_markdown()
         await self._update_database()
         if self._is_done:
-            await self.remove()
+            self.call_after_refresh(
+                lambda: asyncio.create_task(self.remove())
+            )
         else:
             self._update_display()
 
@@ -169,7 +207,7 @@ class TodoItem(ListItem):
         try:
             label = self.query_one(Label)
             due = (
-                f"  [dim #3b4261]{self._item.date}[/dim #3b4261]"
+                f"  [dim #3b4261]{format_due_date(self._item.date)}[/dim #3b4261]"
                 if self._item.date
                 else ""
             )
@@ -261,7 +299,7 @@ class TodosPanel(Widget):
                         t.title, 
                         t.raw_text, 
                         t.due_date, 
-                        n.file_path, 
+                        COALESCE(n.file_path, 'Todoist') AS file_path,
                         t.is_done,
                         CASE 
                             WHEN t.due_date IS NOT NULL AND date(t.due_date) = ? THEN 0
@@ -270,8 +308,9 @@ class TodosPanel(Widget):
                             ELSE 3
                         END as priority_group
                     FROM tasks t
-                    JOIN notes n ON t.note_id = n.id
+                                        LEFT JOIN notes n ON t.note_id = n.id
                     WHERE t.is_deleted = 0 AND t.is_done = 0
+                                            AND (t.note_id IS NULL OR n.deleted_at IS NULL)
                     ORDER BY 
                         priority_group ASC,
                         t.due_date ASC,

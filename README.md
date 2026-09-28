@@ -92,6 +92,10 @@ OPENROUTER_MODEL=openai/gpt-4.1-mini
 EMBEDDING_MODEL=all-MiniLM-L6-v2
 HF_DIR=/absolute/path/to/model/cache/
 
+# Optional two-way Todoist task synchronization
+TODOIST_ENABLED=false
+TODOIST_API_KEY=your_todoist_api_token
+
 # Optional Gemini fallback settings
 GEMINI_API_KEY=
 GEMINI_MODEL=gpt-4o-mini
@@ -205,6 +209,19 @@ The TUI includes vim-inspired navigation:
 ## 🛠️ Configuration Notes
 
 The `config.py` loader is powered by `pydantic-settings` and reads from `.env`.
+Todoist synchronization is disabled by default. Set `TODOIST_ENABLED=true` and
+provide `TODOIST_API_KEY` to sync tasks between Todoist and the local database.
+The worker runs at startup, after local task changes, and periodically while the
+application is running. Todoist-created tasks appear in the Todos panel; edits,
+completion changes, and deletions are reconciled in both directions.
+The default poll interval is 60 seconds and can be changed with
+`TODOIST_SYNC_INTERVAL_SECONDS`. Failed requests stay queued in SQLite and retry
+with bounded backoff; HTTP 429 responses honor `Retry-After`. Todoist-created
+tasks are written to the journal for their creation date with a stable task ID
+marker, which prevents duplicate rows when Markdown is ingested. Use
+`proj:"Project Name"` on a task to assign its Todoist project; `#ProjectName`
+remains a label, even when it matches a project name. ISO `@due` timestamps are
+preserved along with Todoist's timezone.
 
 Example config class:
 
