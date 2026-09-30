@@ -181,6 +181,5 @@ async def test_completed_todo_removal_is_deferred_until_after_refresh(monkeypatc
     assert todo_item._is_done is True
     assert len(scheduled) == 1
     assert removed == []
-    scheduled[0]()
-    await asyncio.sleep(0)
+    await scheduled[0]()
     assert removed == [True]

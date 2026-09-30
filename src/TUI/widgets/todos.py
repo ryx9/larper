@@ -135,9 +135,7 @@ class TodoItem(ListItem):
         await self._update_markdown()
         await self._update_database()
         if self._is_done:
-            self.call_after_refresh(
-                lambda: asyncio.create_task(self.remove())
-            )
+            self.call_after_refresh(self.remove)
         else:
             self._update_display()
 
