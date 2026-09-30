@@ -301,6 +301,49 @@ async def test_markdown_edits_update_existing_todoist_task(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_markdown_state_edit_triggers_todoist_sync(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "ACTIVE_FOLDER", str(tmp_path))
+    monkeypatch.setattr(settings, "DB_PATH", "notes.db")
+    await init_db()
+
+    note_path = tmp_path / "tasks.md"
+    original = "- [ ] Close account <!-- todoist:linked-2 -->\n"
+    note_path.write_text(original, encoding="utf-8")
+    note_id = await upsert_note(
+        str(note_path), "tasks", "page", original, "created"
+    )
+    _, _, parsed, _, _ = parse_markdown(note_path, original)
+    parsed[0]["block_id"] = None
+    async with get_connection() as conn:
+        await conn.execute("""
+            INSERT INTO tasks
+                (note_id, raw_text, title, is_done, todolist_id, sync_status)
+            VALUES (?, ?, 'Close account', 0, 'linked-2', 'synced')
+        """, (note_id, parsed[0]["raw_text"]))
+        await conn.commit()
+
+    calls = []
+    monkeypatch.setattr(
+        "src.ingestion.sync_worker.trigger_sync", lambda: calls.append(True)
+    )
+    edited = "- [x] Close account <!-- todoist:linked-2 -->\n"
+    note_path.write_text(edited, encoding="utf-8")
+    _, _, parsed, _, _ = parse_markdown(note_path, edited)
+    parsed[0]["block_id"] = None
+    await insert_tasks(note_id, parsed)
+
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT is_done, todolist_id, sync_status FROM tasks"
+        )
+        row = await cursor.fetchone()
+    assert row["is_done"] == 1
+    assert row["todolist_id"] == "linked-2"
+    assert row["sync_status"] == "local"
+    assert calls == [True]
+
+
+@pytest.mark.asyncio
 async def test_markdown_due_date_removal_clears_todoist_and_database(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "ACTIVE_FOLDER", str(tmp_path))
     monkeypatch.setattr(settings, "DB_PATH", "notes.db")

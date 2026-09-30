@@ -42,7 +42,7 @@ def _resolve_natural_date(
         if parsed:
             explicit_time = re.search(
                 r"\b(?:at\s+)?\d{1,2}:\d{2}\s*(?:am|pm)?\b"
-                r"|\bat\s+\d{1,2}\s*(?:am|pm)\b",
+                r"|\b(?:at\s+)?\d{1,2}\s*(?:am|pm)\b",
                 candidate,
                 re.IGNORECASE,
             )

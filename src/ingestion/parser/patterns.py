@@ -84,6 +84,7 @@ NATURAL_DATE_PATTERN = re.compile(
         |on\s+(?:mon|tues?|wednes|thurs?|fri|satur|sun)day
         |(?:mon|tues?|wednes|thurs?|fri|satur|sun)day
     )\b(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:AM|PM)?|"
-    r"\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?""",
+    r"\s+\d{1,2}:\d{2}\s*(?:AM|PM)?|"
+    r"\s+\d{1,2}\s*(?:AM|PM))?""",
     re.IGNORECASE | re.VERBOSE,
 )

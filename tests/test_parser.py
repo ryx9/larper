@@ -51,6 +51,22 @@ def test_extract_task_meta():
     assert res2['tags'] == "fun"
     assert res2['title'] == "Watch movie TODO: get popcorn"
 
+def test_extract_task_meta_preserves_natural_due_times():
+    from datetime import datetime
+    from src.ingestion.parser.extractors import _resolve_natural_date
+
+    base = datetime(2026, 9, 30, 9, 0)
+    assert _resolve_natural_date("today 4pm", base) == "2026-09-30T16:00"
+    assert _resolve_natural_date("tomorrow 12:10pm", base) == "2026-10-01T12:10"
+
+    task = _extract_task_meta(
+        "done: call home @due today 4pm",
+        "call home @due today 4pm",
+        "done",
+        1,
+    )
+    assert task["due_date"].endswith("T16:00")
+
 if __name__ == "__main__":
     test_task_pattern()
     test_due_date_pattern()
